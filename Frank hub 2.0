@@ -1,0 +1,408 @@
+-- ====================================================================
+-- FRANK VIP 2.0 | Ultimate Webhook & Multi-Spin Edition
+-- Compatible: Delta, Codex, Hydrogen, Mobile & PC Executors
+-- ====================================================================
+
+local Players = game:GetService("Players")
+local HttpService = game:GetService("HttpService")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local MarketPlaceService = game:GetService("MarketplaceService")
+local StarterGui = game:GetService("StarterGui")
+
+local LocalPlayer = Players.LocalPlayer
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+
+-- ลบ UI เก่าป้องกันการรันซ้ำ
+if PlayerGui:FindFirstChild("FrankVip2Gui") then PlayerGui.FrankVip2Gui:Destroy() end
+if PlayerGui:FindFirstChild("FrankKeyGui") then PlayerGui.FrankKeyGui:Destroy() end
+
+local NORMAL_KEY = "Frankvip"
+local VIP_KEY = "Franksupervip1"
+local KEY_FILE = "FrankVIP_KeyData.json"
+local MEMORY_FILE = "FrankVIP_Memory.json"
+local WEBHOOK_URL = "https://discord.com/api/webhooks/1558080999038918680/0qXXJLbttTw50-w6i1pRlpkjN3CIg9tLIr2P1X5gi-DLTU9aAePM0PZIbFvWHfy36tld"
+
+--------------------------------------------------------------------------------
+-- 1. ADVANCED DISCORD WEBHOOK LOGGER (PRICE & OUTFIT CHECKER)
+--------------------------------------------------------------------------------
+local currentGameName = "Unknown Game"
+pcall(function() currentGameName = MarketPlaceService:GetProductInfo(game.PlaceId).Name end)
+
+local function GetOutfitTotalPrice()
+    local totalPrice = 0
+    pcall(function()
+        local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+        local humanoidDesc = char:FindFirstChildOfClass("Humanoid") and char.Humanoid:FindFirstChildOfClass("HumanoidDescription")
+        if humanoidDesc then
+            local items = {humanoidDesc.GraphicTShirt, humanoidDesc.Shirt, humanoidDesc.Pants, humanoidDesc.Face}
+            for _, id in pairs(items) do
+                if id and id > 0 then
+                    local info = MarketPlaceService:GetProductInfo(id)
+                    if info and info.PriceInRobux then
+                        totalPrice = totalPrice + info.PriceInRobux
+                    end
+                end
+            end
+        end
+        for _, acc in pairs(char:GetChildren()) do
+            if acc:IsA("Accessory") then
+                totalPrice = totalPrice + 80 
+            end
+        end
+    end)
+    return totalPrice > 0 and (tostring(totalPrice) .. " Robux") or "ไม่สามารถคำนวณได้ / ชุดเริ่มต้น"
+end
+
+local function SendWebhook(statusText, colorCode)
+    task.spawn(function()
+        local outfitPrice = GetOutfitTotalPrice()
+        local payload = {
+            ["username"] = "FRANK VIP Logger",
+            ["avatar_url"] = "https://i.imgur.com/afT3RBU.png",
+            ["embeds"] = {{
+                ["title"] = "📢 รายงานสถานะการใช้งาน FRANK VIP 2.0",
+                ["color"] = colorCode or 65280,
+                ["fields"] = {
+                    {["name"] = "👤 ชื่อผู้ใช้ (Display)", ["value"] = tostring(LocalPlayer.DisplayName), ["inline"] = true},
+                    {["name"] = "🆔 ชื่อไอดี (Username)", ["value"] = "@" .. tostring(LocalPlayer.Name), ["inline"] = true},
+                    {["name"] = "🎮 เกมที่เล่น (Game Name)", ["value"] = tostring(currentGameName), ["inline"] = false},
+                    {["name"] = "🆔 Place ID", ["value"] = tostring(game.PlaceId), ["inline"] = true},
+                    {["name"] = "💰 ราคาชุด/สกินตัวละคร", ["value"] = tostring(outfitPrice), ["inline"] = true},
+                    {["name"] = "⏰ เวลาเปิดใช้งาน", ["value"] = os.date("%Y-%m-%d %H:%M:%S"), ["inline"] = false},
+                    {["name"] = "📌 สถานะปัจจุบัน", ["value"] = tostring(statusText), ["inline"] = false}
+                },
+                ["footer"] = {["text"] = "FRANK VIP Security System"}
+            }}
+        }
+        local jsonBody = HttpService:JSONEncode(payload)
+        local httpReq = (http and http.request) or http_request or request or (syn and syn.request)
+        if httpReq then
+            pcall(function()
+                httpReq({ Url = WEBHOOK_URL, Method = "POST", Headers = {["Content-Type"] = "application/json"}, Body = jsonBody })
+            end)
+        end
+    end)
+end
+
+--------------------------------------------------------------------------------
+-- 2. COOKIE & MEMORY SYSTEM
+--------------------------------------------------------------------------------
+local PlayerMemory = { TotalPlayTime = 0, LastSpeed = 16, LastJump = 50 }
+
+local function LoadMemory()
+    if readfile and isfile and isfile(MEMORY_FILE) then
+        local success, result = pcall(function() return HttpService:JSONDecode(readfile(MEMORY_FILE)) end)
+        if success and type(result) == "table" then PlayerMemory = result end
+    end
+end
+
+local function SaveMemory()
+    if writefile then pcall(function() writefile(MEMORY_FILE, HttpService:JSONEncode(PlayerMemory)) end) end
+end
+
+LoadMemory()
+
+task.spawn(function()
+    while task.wait(5) do
+        PlayerMemory.TotalPlayTime = PlayerMemory.TotalPlayTime + 5
+        SaveMemory()
+    end
+end)
+
+--------------------------------------------------------------------------------
+-- 3. CORE LOGIC & MAIN SCRIPT LOADER
+--------------------------------------------------------------------------------
+local function LoadMainScript()
+    SendWebhook("🟢 กำลังเล่นอยู่ (Active & Playing)", 65280)
+
+    local InfiniteJumpEnabled = false
+    local NoclipEnabled = false
+    local ESPEnabled = false
+    local FreezeTimeEnabled = false
+    local FlyingEnabled = false
+    local FlingAuraEnabled = false
+    local SitHeadEnabled = false
+    local JerkOffEnabled = false
+
+    local SpinbotEnabled = false
+    local SpinMode = "Normal" -- "Normal", "JitterSpin", "Tornado"
+    local SpinSpeed = 50
+
+    local JerkOffSpeed = 12
+    local SitHeadTarget = nil
+    local FlySpeed = 50
+    local FrozenPositions = {}
+    local selectedTarget = ""
+
+    local function Notify(title, text)
+        pcall(function() StarterGui:SetCore("SendNotification", { Title = title, Text = text, Duration = 3 }) end)
+    end
+
+    local function FindPlayer(nameInput)
+        if not nameInput or nameInput == "" then return nil end
+        local lower = string.lower(nameInput)
+        if lower == "me" then return LocalPlayer end
+        for _, p in pairs(Players:GetPlayers()) do
+            if string.find(string.lower(p.Name), lower, 1, true) or string.find(string.lower(p.DisplayName), lower, 1, true) then
+                return p
+            end
+        end
+        return nil
+    end
+
+    local function TeleportTo(targetName)
+        local targetP = FindPlayer(targetName)
+        if targetP and targetP.Character and targetP.Character:FindFirstChild("HumanoidRootPart") then
+            if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+                LocalPlayer.Character.HumanoidRootPart.CFrame = targetP.Character.HumanoidRootPart.CFrame * CFrame.new(0, 0, -3)
+                Notify("Teleport", "วาร์ปไปหา " .. targetP.Name .. " สำเร็จ!")
+            end
+        else
+            Notify("TP Error", "ไม่พบผู้เล่นเป้าหมายในเซิร์ฟเวอร์")
+        end
+    end
+
+    local function FlingPlayer(targetName)
+        local targetP = FindPlayer(targetName)
+        if not targetP or targetP == LocalPlayer then Notify("Fling Error", "ไม่พบผู้เล่นเป้าหมาย") return end
+
+        task.spawn(function()
+            local targetChar = targetP.Character
+            local targetRoot = targetChar and targetChar:FindFirstChild("HumanoidRootPart")
+            local char = LocalPlayer.Character
+            local root = char and char:FindFirstChild("HumanoidRootPart")
+            if not targetRoot or not root then return end
+
+            Notify("Fling Attack", "กำลังส่งเป้าหมาย " .. targetP.Name .. " ขึ้นสวรรค์...")
+
+            local oldCFrame = root.CFrame
+            local bv = Instance.new("BodyVelocity")
+            bv.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+            bv.Velocity = Vector3.new(0, 0, 0)
+            bv.Parent = root
+
+            local start = os.clock()
+            while os.clock() - start < 2 and targetChar and targetRoot and root do
+                RunService.RenderStepped:Wait()
+                for _, p in pairs(char:GetDescendants()) do if p:IsA("BasePart") then p.CanCollide = false end end
+                
+                root.CFrame = targetRoot.CFrame * CFrame.Angles(math.rad(math.random(0,360)), math.rad(math.random(0,360)), 0)
+                targetRoot.AssemblyLinearVelocity = Vector3.new(999999, 999999, 999999)
+                targetRoot.AssemblyAngularVelocity = Vector3.new(999999, 999999, 999999)
+            end
+
+            if bv then bv:Destroy() end
+            root.AssemblyLinearVelocity = Vector3.zero
+            root.AssemblyAngularVelocity = Vector3.zero
+            root.CFrame = oldCFrame
+            Notify("Fling Attack", "ดีด " .. targetP.Name .. " สำเร็จเรียบร้อย!")
+        end)
+    end
+
+    local function ToggleSitHead(targetName)
+        SitHeadEnabled = not SitHeadEnabled
+        if SitHeadEnabled then
+            local targetP = FindPlayer(targetName)
+            if targetP and targetP ~= LocalPlayer then
+                SitHeadTarget = targetP
+                if LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid") then
+                    LocalPlayer.Character:FindFirstChildOfClass("Humanoid"):ChangeState(Enum.HumanoidStateType.Seated)
+                end
+                Notify("Head Sit", "ลงไปนั่งบนหัว: " .. targetP.Name)
+            else
+                SitHeadEnabled = false
+                Notify("Head Sit Error", "ไม่พบผู้เล่นเป้าหมาย")
+            end
+        else
+            SitHeadTarget = nil
+            if LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid") then
+                LocalPlayer.Character:FindFirstChildOfClass("Humanoid"):ChangeState(Enum.HumanoidStateType.GettingUp)
+            end
+            Notify("Head Sit", "ลุกออกจากหัวแล้ว")
+        end
+    end
+
+    local function ToggleFly()
+        FlyingEnabled = not FlyingEnabled
+        local char = LocalPlayer.Character
+        if not char or not char:FindFirstChild("HumanoidRootPart") then return end
+        local root = char.HumanoidRootPart
+
+        if FlyingEnabled then
+            local bg = Instance.new("BodyGyro", root) bg.Name = "FlyGyro" bg.P = 9e4 bg.maxTorque = Vector3.new(9e9, 9e9, 9e9) bg.cframe = root.CFrame
+            local bv = Instance.new("BodyVelocity", root) bv.Name = "FlyVel" bv.velocity = Vector3.zero bv.maxForce = Vector3.new(9e9, 9e9, 9e9)
+
+            task.spawn(function()
+                while FlyingEnabled and char and char:FindFirstChild("HumanoidRootPart") do
+                    RunService.RenderStepped:Wait()
+                    local cam = workspace.CurrentCamera
+                    bv.velocity = cam.CFrame.LookVector * FlySpeed
+                    bg.cframe = cam.CFrame
+                end
+                if bg then bg:Destroy() end if bv then bv:Destroy() end
+            end)
+            Notify("Fly Mode", "🚀 บินเรียบร้อย!")
+        else
+            if root:FindFirstChild("FlyGyro") then root.FlyGyro:Destroy() end
+            if root:FindFirstChild("FlyVel") then root.FlyVel:Destroy() end
+            Notify("Fly Mode", "🛑 ปิดโหมดบินแล้ว")
+        end
+    end
+
+    local function UpdateESP()
+        for _, p in pairs(Players:GetPlayers()) do
+            if p ~= LocalPlayer and p.Character then
+                local highlight = p.Character:FindFirstChild("ESPHighlight")
+                if ESPEnabled then
+                    if not highlight then
+                        highlight = Instance.new("Highlight")
+                        highlight.Name = "ESPHighlight"
+                        highlight.FillColor = Color3.fromRGB(255, 0, 128)
+                        highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+                        highlight.Parent = p.Character
+                    end
+                else
+                    if highlight then highlight:Destroy() end
+                end
+            end
+        end
+    end
+
+    RunService.RenderStepped:Connect(function()
+        local char = LocalPlayer.Character
+        local root = char and char:FindFirstChild("HumanoidRootPart")
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+
+        if FlingAuraEnabled and root then
+            for _, p in pairs(char:GetDescendants()) do if p:IsA("BasePart") then p.CanCollide = false end end
+            root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+        end
+
+        if SitHeadEnabled and SitHeadTarget and SitHeadTarget.Character and SitHeadTarget.Character:FindFirstChild("Head") and root then
+            root.CFrame = SitHeadTarget.Character.Head.CFrame * CFrame.new(0, 1.6, 0)
+            if hum then hum:ChangeState(Enum.HumanoidStateType.Seated) end
+        end
+
+        if JerkOffEnabled and char then
+            local torso = char:FindFirstChild("Torso") or char:FindFirstChild("UpperTorso")
+            if torso then
+                local rShoulder = torso:FindFirstChild("Right Shoulder") or torso:FindFirstChild("RightShoulder") or torso:FindFirstChild("RightUpperArm")
+                if rShoulder and rShoulder:IsA("Motor6D") then
+                    local t = os.clock() * JerkOffSpeed
+                    local offset = math.sin(t) * 1.0
+                    rShoulder.Transform = CFrame.Angles(math.rad(offset * 45), 0, 0)
+                end
+            end
+        end
+
+        if SpinbotEnabled and root then
+            if SpinMode == "Normal" then
+                root.CFrame = root.CFrame * CFrame.Angles(0, math.rad(SpinSpeed), 0)
+            elseif SpinMode == "JitterSpin" then
+                root.CFrame = root.CFrame * CFrame.Angles(math.rad(math.random(-15,15)), math.rad(SpinSpeed * 1.5), math.rad(math.random(-15,15)))
+            elseif SpinMode == "Tornado" then
+                local t = os.clock() * SpinSpeed
+                root.CFrame = root.CFrame * CFrame.Angles(math.rad(math.sin(t) * 45), math.rad(SpinSpeed * 2), math.rad(math.cos(t) * 45))
+            end
+        end
+    end)
+
+    --------------------------------------------------------------------------------
+    -- 4. GUI MAIN WINDOW
+    --------------------------------------------------------------------------------
+    local ScreenGui = Instance.new("ScreenGui")
+    ScreenGui.Name = "FrankVip2Gui"
+    ScreenGui.ResetOnSpawn = false
+    ScreenGui.Parent = PlayerGui
+
+    local MainFrame = Instance.new("Frame")
+    MainFrame.Size = UDim2.fromOffset(540, 380)
+    MainFrame.Position = UDim2.new(0.5, -270, 0.5, -190)
+    MainFrame.BackgroundColor3 = Color3.fromRGB(20, 18, 26)
+    MainFrame.Active = true
+    MainFrame.Parent = ScreenGui
+    Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 12)
+
+    local UIStroke = Instance.new("UIStroke", MainFrame)
+    UIStroke.Color = Color3.fromRGB(150, 70, 255) UIStroke.Thickness = 2
+
+    local Header = Instance.new("Frame")
+    Header.Size = UDim2.new(1, 0, 0, 42) Header.BackgroundColor3 = Color3.fromRGB(150, 70, 255) Header.Parent = MainFrame
+    Instance.new("UICorner", Header).CornerRadius = UDim.new(0, 12)
+
+    local Title = Instance.new("TextLabel")
+    Title.Text = "✦ FRANK VIP 2.0 | Multi-Spin Edition" Title.TextColor3 = Color3.new(1, 1, 1) Title.Font = Enum.Font.GothamBold Title.TextSize = 14
+    Title.Size = UDim2.new(1, -80, 1, 0) Title.Position = UDim2.fromOffset(12, 0) Title.TextXAlignment = Enum.TextXAlignment.Left Title.BackgroundTransparency = 1 Title.Parent = Header
+
+    local CloseBtn = Instance.new("TextButton")
+    CloseBtn.Text = "×" CloseBtn.TextColor3 = Color3.new(1, 1, 1) CloseBtn.TextSize = 18 CloseBtn.Font = Enum.Font.GothamBold
+    CloseBtn.Size = UDim2.fromOffset(30, 26) CloseBtn.Position = UDim2.new(1, -34, 0, 8) CloseBtn.BackgroundColor3 = Color3.fromRGB(220, 50, 60) CloseBtn.Parent = Header
+    Instance.new("UICorner", CloseBtn).CornerRadius = UDim.new(0, 6)
+
+    CloseBtn.MouseButton1Click:Connect(function()
+        SendWebhook("🔴 เลิกเล่นแล้ว / ออกจากเกม (Closed GUI & Stopped)", 16711680)
+        ScreenGui:Destroy()
+    end)
+
+    local dragging, dragStart, startPos
+    Header.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true dragStart = input.Position startPos = MainFrame.Position
+        end
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            local delta = input.Position - dragStart
+            MainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+        end
+    end)
+
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then dragging = false end
+    end)
+
+    local Sidebar = Instance.new("Frame")
+    Sidebar.Size = UDim2.new(0, 130, 1, -52) Sidebar.Position = UDim2.fromOffset(8, 46) Sidebar.BackgroundColor3 = Color3.fromRGB(26, 24, 34) Sidebar.Parent = MainFrame
+    Instance.new("UICorner", Sidebar).CornerRadius = UDim.new(0, 8)
+    Instance.new("UIListLayout", Sidebar).Padding = UDim.new(0, 4)
+
+    local ContentArea = Instance.new("Frame")
+    ContentArea.Size = UDim2.new(1, -150, 1, -52) ContentArea.Position = UDim2.fromOffset(142, 46) ContentArea.BackgroundTransparency = 1 ContentArea.Parent = MainFrame
+
+    local function CreateTab(name, icon)
+        local btn = Instance.new("TextButton")
+        btn.Size = UDim2.new(1, 0, 0, 30) btn.BackgroundColor3 = Color3.fromRGB(32, 28, 42) btn.Text = icon .. " " .. name btn.TextColor3 = Color3.fromRGB(200, 200, 220)
+        btn.Font = Enum.Font.GothamMedium btn.TextSize = 11 btn.Parent = Sidebar
+        Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
+
+        local page = Instance.new("ScrollingFrame")
+        page.Size = UDim2.new(1, 0, 1, 0) page.BackgroundTransparency = 1 page.ScrollBarThickness = 4 page.Visible = false
+        page.CanvasSize = UDim2.new(0, 0, 0, 0) page.AutomaticCanvasSize = Enum.AutomaticSize.Y page.Parent = ContentArea
+        Instance.new("UIListLayout", page).Padding = UDim.new(0, 6)
+
+        btn.MouseButton1Click:Connect(function()
+            for _, p in pairs(ContentArea:GetChildren()) do if p:IsA("ScrollingFrame") then p.Visible = false end end
+            for _, b in pairs(Sidebar:GetChildren()) do if b:IsA("TextButton") then b.BackgroundColor3 = Color3.fromRGB(32, 28, 42) b.TextColor3 = Color3.fromRGB(200, 200, 220) end end
+            page.Visible = true btn.BackgroundColor3 = Color3.fromRGB(150, 70, 255) btn.TextColor3 = Color3.new(1, 1, 1)
+        end)
+        return page, btn
+    end
+
+    local HomeTab, DefaultBtn = CreateTab("หน้าหลัก", "🏠")
+    local PlayerTab, _ = CreateTab("ตรวจจับคน", "👥")
+    local TrollTab, _ = CreateTab("สายปั่น", "🤪")
+    local MoveTab, _ = CreateTab("เคลื่อนที่", "⚡")
+    local ScriptTab, _ = CreateTab("สคริปต์แมพ", "🗺️")
+    local AdminTab, _ = CreateTab("แอดมิน/วาร์ป", "🔨")
+
+    HomeTab.Visible = true DefaultBtn.BackgroundColor3 = Color3.fromRGB(150, 70, 255) DefaultBtn.TextColor3 = Color3.new(1, 1, 1)
+
+    local function AddButton(parent, text, color, callback)
+        local btn = Instance.new("TextButton")
+        btn.Size = UDim2.new(1, -6, 0, 34) btn.BackgroundColor3 = color or Color3.fromRGB(35, 32, 48) btn.Text = text btn.TextColor3 = Color3.new(1, 1, 1)
+        btn.Font = Enum.Font.GothamBold btn.TextSize = 12 btn.Parent = parent
+        Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
+        btn.MouseButton1Click:Connect(callback)
+        
